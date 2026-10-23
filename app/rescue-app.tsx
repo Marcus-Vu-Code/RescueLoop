@@ -103,7 +103,7 @@ const STATUS_LABEL = {
   reserved: "Pickup approved",
   collected: "Collected",
 };
-function Logo({ small = false }: { small?: boolean }) {
+export function Logo({ small = false }: { small?: boolean }) {
   return (
     <span className={"brand " + (small ? "small" : "")}>
       <span className="brand-mark">
@@ -119,7 +119,7 @@ function Logo({ small = false }: { small?: boolean }) {
     </span>
   );
 }
-function Badge({
+export function Badge({
   children,
   tone = "green",
 }: {
@@ -133,7 +133,7 @@ function Badge({
     </span>
   );
 }
-function Modal({
+export function Modal({
   title,
   eyebrow,
   children,
@@ -190,7 +190,7 @@ function Modal({
     </dialog>
   );
 }
-function FoodArt({ food }: { food: Food }) {
+export function FoodArt({ food }: { food: Pick<Food, "name" | "category"> }) {
   const bakery = food.category === "Bakery",
     produce = food.category === "Produce",
     sandwich = food.name.toLowerCase().includes("sandwich"),
@@ -2282,7 +2282,7 @@ export default function RescueApp() {
   );
 }
 
-function Stat({
+export function Stat({
   icon,
   label,
   value,

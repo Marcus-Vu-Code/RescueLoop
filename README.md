@@ -1,17 +1,33 @@
 # RescueLoop
 
-**Good food. Greater impact.** A campus food rescue coordinator built for the SpartHill Hacks 2026 IBM AI Challenge.
+**Good food. Greater impact.** A campus food rescue coordinator for the SpartHill Hacks IBM AI Challenge. Independent donor and receiver accounts connect, share verified surplus, arrange pickups, and record collections.
+
+Public application: **https://rescueloop-live.rescueloop-campus.workers.dev**
+
+## What works
+
+- Independent email/password accounts, secure sessions, password changes, and single-use recovery codes.
+- Organization profiles with opt-in directory discovery, partnership requests, acceptance, and closure.
+- Shared food listings, manual entry, note-to-draft extraction, and validated CSV imports.
+- Human verification and transparent checks for receiving hours, time zones, storage, category, dietary requirements, declared allergens, and daily capacity.
+- Receiver pickup requests, donor approval, cancellation, atomic capacity reservations, private pickup conversations, and receiver-confirmed collection receipts.
+- In-app notifications, unread counts, preferences, collection CSV exports, and traceable impact totals.
+- A separate `/demo` with fictional data and browser-local persistence for a quick guided demonstration.
+
+The main application uses a shared Cloudflare D1 database and the real clock. It starts empty. Local test accounts and `/demo` records are never uploaded to a public database.
 
 ## Run locally
 
-Requires **Node.js 22.13 or newer** and npm.
+Requires Node.js 22.13 or newer and npm. From this directory:
 
 ```powershell
 npm run install:ci
+npm run build
+node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --config dist/server/wrangler.json --persist-to .wrangler/state
 npm run dev
 ```
 
-Open the Local URL printed by the development server. No API key is required. The default demo runs a clearly labeled offline rule-based note parser.
+Open the Local URL printed by the development server. Create an account for the shared workflow or open `/demo` for the synthetic demonstration. Save the recovery code shown at registration; no recovery email is sent. `npm run start` serves the built Worker locally using the same local D1 state.
 
 ```powershell
 npm test
@@ -19,78 +35,58 @@ npm run typecheck
 npm run build
 ```
 
-`npm run start` serves the built Worker locally. The project uses the portable Sites execution profile, including on Windows.
+The 27 tests cover multi-account authorization, sessions and recovery, concurrent approvals, capacity release, collection receipts, time-zone restrictions, parser validation, CSV safety, and mocked IBM requests. Live integration tests use a temporary Miniflare D1 database. Migrations in `drizzle/` are append-only; generate future schema changes with `npm run db:generate`.
 
-## What works
+## Public hosting
 
-- Coordinator overview with available food, receiving capacity, verified collections, and estimated meal equivalents.
-- Notes-to-draft extraction, manual entry, and inventory CSV uploads, with a human review queue.
-- Editable partners and capacity CSV uploads, including pickup windows, food categories, storage, dietary requirements, and allergen restrictions.
-- Transparent matching, human pickup approval, reserved daily capacity, collection confirmation, and cancellation with capacity release.
-- Impact charts, collection-level CSV exports, activity, search, local persistence, sample-workspace reset, and responsive navigation.
-- Optional server-side IBM watsonx.ai extraction adapter with schema validation, timeout handling, and no client-side credentials.
+See [PUBLIC-HOSTING.md](docs/PUBLIC-HOSTING.md) for direct Cloudflare deployment. `npm run deploy:cloudflare` builds and deploys the Worker, creates or reuses `rescueloop-live`, and applies pending migrations. The actual public address comes from Wrangler. A first-time Cloudflare account may require workers.dev setup.
 
-## The demonstration
+The original managed Sites URL has an owner-only platform gate because this workspace does not offer public Sites access. Independent application accounts do not bypass that platform gate. `.openai/hosting.json` retains the registered Site identity; direct deployment generates its own ignored configuration and preserves the shared database between releases.
 
-The demo clock is fixed at **2:30 PM Pacific on October 23, 2026** so judges can replay it reliably. All inventory, organizations, distances, pickups, and impact figures are synthetic. The network map is illustrative. No real partner affiliation is claimed.
+## Demonstrate the shared workflow
 
-Start with five verified food listings, one unverified soup listing, three partners, and four historical sample collections totaling 124 kg. **Find matches → Approve pickup → Approved pickups → Confirm collection → Impact report** shows the full loop. The first rice-bowl collection adds 24 kg and 48 estimated meal equivalents.
+Use separate donor and receiver accounts, ideally in separate browser profiles. Publish their directory profiles, request and accept a partnership, and configure the receiver's receiving hours and capacity. The donor adds a verified future-dated listing. The receiver requests it, the donor approves, and the receiver confirms collection after the agreed window starts. Both parties can read the pickup conversation and receipt. Only a confirmed collection changes impact.
 
-To structure a note, select **Add surplus → Use a sample note → Structure note & review**. Review the fields, verify them with the fictional donor for the demo, then check the verification box and save. Unknown allergens cannot be verified. Imported listings always start in review, even if an input file claims they are verified.
+See [the demo script](docs/DEMO.md) and [the Devpost draft](docs/DEVPOST.md). `/demo` is isolated from the shared application, uses a fixed sample clock, and clearly labels its synthetic impact and illustrative distances.
 
-Download inventory and partner CSV templates from their import tabs. Weight is in kg, time is 24-hour `HH:MM`, and multiple dietary labels or partner categories/storage types use `|` separators.
+## Optional IBM watsonx.ai
 
-See [the three-minute demo script](docs/DEMO.md) and [the Devpost draft](docs/DEVPOST.md).
+Copy `.env.example` to ignored `.dev.vars` for local development. Configure `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, `WATSONX_MODEL_ID`, and `WATSONX_URL`. Choose a chat-capable model actually available in your project and region. In production, use Worker secrets with the generated direct-deployment config, or Sites runtime environment variables for the managed Site.
 
-## Enable IBM watsonx.ai
+The server exchanges the API key through IBM IAM and calls `/ml/v1/text/chat?version=2024-05-31`. Explicit regional allowlists, bounded inputs, timeout handling, and schema validation protect the extraction endpoint. Live extraction requires a signed-in RescueLoop account and a same-origin request. It runs only when the coordinator selects it. Credentials remain server-side, missing details stay unknown, and model output cannot verify food or approve a pickup.
 
-1. Obtain an IBM Cloud API key, a watsonx.ai project ID, and a **chat-capable model ID available in that project and region**. Model availability changes; the app intentionally requires an explicit model ID.
-2. Copy `.env.example` to **`.dev.vars`** for local Worker development and fill in `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, `WATSONX_MODEL_ID`, and `WATSONX_URL`. Both local secret files are ignored by Git.
-3. Restart the development server. **Add surplus → From a note** should identify IBM watsonx.ai as configured. In production, set these same four values through Sites runtime environment variables and redeploy.
-4. Use a test inventory note with no personal information, inspect the extracted fields, and confirm that missing details remain unknown. A configured adapter is not proof of a successful live call.
+Without credentials, the UI identifies the offline rule-based parser. Tests mock IBM responses; a live IBM request has not been verified without the owner's provider credentials. Do not claim live IBM inference when demonstrating the offline parser.
 
-The server exchanges the API key at IBM IAM, then sends a chat request to `/ml/v1/text/chat?version=2024-05-31`. Supported regional hosts are explicitly allowlisted. The request uses temperature 0 and an extraction-only prompt; returned fields pass Zod validation. Provider failures never create a listing or silently impersonate successful inference. The offline parser remains available when no IBM configuration is provided.
+References: [IBM watsonx.ai API](https://cloud.ibm.com/docs/apis/watsonx-ai), [IBM IAM API](https://cloud.ibm.com/docs/apis/iam-identity-token-api).
 
-Credentials remain server-side. Live extraction requires same-origin requests and a signed-in Site visitor; loopback development is permitted without sign-in. No model call is made automatically. Notes are sent only when the coordinator chooses live extraction.
+## Data, security, and measurement
 
-References: [IBM watsonx.ai API](https://cloud.ibm.com/docs/apis/watsonx-ai) and [IBM IAM API](https://cloud.ibm.com/docs/apis/iam-identity-token-api).
+Passwords use salted PBKDF2-HMAC-SHA256 with 600,000 iterations. Random opaque session tokens are hashed in D1 and issued in HttpOnly, SameSite=Lax cookies, with Secure and `__Host-` in production. Mutations validate origin, ownership, roles, schema, and lifecycle. Sign-in and recovery are rate limited. Recovery rotates the code and invalidates previous sessions. Private source notes are excluded from partner views, and pickup messages are limited to the two participating organizations.
 
-## Matching and impact
+Approvals recheck current eligibility and reserve one whole batch with a conditional SQL update and D1 transaction. Concurrent donors cannot overbook the same receiver's daily capacity. Cancellation releases capacity. Collection retains that day's capacity and generates one receipt. Existing reservations prevent reducing capacity below commitments or changing the receiving time zone while active pickups would be affected.
 
-The matcher uses hard constraints before ranking:
-
-1. Food is available on the demo date, has positive weight, and has been human verified with known declared allergens.
-2. Partner is active, accepts the category, and has compatible storage.
-3. Declared dietary labels satisfy requirements. Vegan listings can satisfy vegetarian requirements.
-4. Declared allergens do not conflict with configured exclusions. Basic common allergen aliases are checked; this is not a comprehensive food-safety assessment.
-5. Pickup and receiving windows overlap by at least 15 minutes after the demo clock.
-6. The whole batch fits remaining daily receiving capacity, including existing reservations and collections and earlier suggestions in the same run.
-
-Process batches by earliest deadline, then select the closest eligible partner using illustrative distance values. Approval rechecks eligibility and reserves capacity. Collection keeps daily capacity used; cancellation releases it. The algorithm is a deterministic greedy heuristic, not a global optimization or a trained matching model. Suggestions can change as approvals consume capacity.
-
-Rescued food = sum of confirmed collected weight. Estimated meal equivalents = `floor(total collected kg / 0.5)`. The 0.5 kg portion assumption is illustrative, not a validated nutrition or servings claim. Suggestions and reserved food do not count as rescued. No carbon savings are claimed.
+Rescued kg is the sum of receiver-confirmed donor-reported batch weights. Estimated meal equivalents are `floor(collected kg / 0.5)`. The 0.5 kg assumption is illustrative and is not a nutritional or serving-size claim. Requests and approved pickups do not count as rescued. No carbon savings are claimed.
 
 ## Architecture
 
 ```text
-app/rescue-app.tsx       Responsive coordinator interface and local workspace state
-lib/rescue.ts            Data types, synthetic seed, validation, parsers, matching, impact
-lib/watsonx.ts           IBM IAM/chat adapter and untrusted model-output validation
-app/api/extract/route.ts Server configuration status and bounded extraction endpoint
-tests/                  Node tests for constraints, lifecycle, parsers, and mocked IBM API
-worker/index.ts          Vinext Worker entrypoint with Sites integration
+app/live-app.tsx         Shared application interface
+app/live.css             Responsive account and coordination UI
+app/api/live/route.ts     D1-backed account and workflow endpoint
+lib/live-service.ts       Authorization, lifecycle, notifications, transactions
+lib/live-domain.ts        Validation, receiving windows, explainable eligibility
+lib/passwords.ts          Password KDF and opaque token helpers
+db/schema.ts / drizzle/   Shared D1 schema and immutable migrations
+lib/watsonx.ts            IBM IAM/chat extraction adapter
+app/api/extract/route.ts  Authenticated extraction endpoint
+app/demo/                Isolated browser-local sample application
+scripts/deploy-cloudflare.mjs  Direct public Worker/D1 deployment
 ```
 
-React/TypeScript runs on Vinext/Vite and Cloudflare Workers. The Sites starter’s build, auth, and deployment integration is retained. The prototype stores operational data in versioned browser localStorage. Malformed saved state is rejected. CSV exports quote cells and neutralize leading spreadsheet formulas. Tests mock IBM; a live provider call requires the owner's credentials and was not assumed.
+React/TypeScript runs on Vinext/Vite and Cloudflare Workers. The Sites starter's deployment integration is retained. Notifications refresh when the application is open; messages poll within a pickup conversation.
 
-## Limits and next steps
+## Current limits
 
-This is a **single-coordinator hackathon prototype**, not an operational food redistribution service. Records are local to one browser; there is no shared transactional database, multi-user conflict protection, real dispatch, live inventory feed, food-safety certification, or live routing. Coordinator verification must follow actual donor and partner procedures. Matching checks only the explicitly configured constraints, and whole-batch allocation can miss feasible partial allocations.
+Notifications are in-app; email, SMS, and push delivery are not configured. Email ownership and organization affiliation are unverified. Recovery uses the private code rather than email. Each account manages one organization. Matching checks declared constraints and uses whole batches; it does not certify food safety, provide routing or dispatch, or verify reported weights. No beneficiary personal information is required. A real campus pilot still needs partner consent, handling protocols, operational support, and measurement validation. Verify the deployed signup workflow against the selected Worker's CPU allowance before inviting users.
 
-Before a real pilot: partner with campus dining and a pantry, validate food handling and allergen procedures, add shared records and atomic reservations, introduce real dates/expiry and routing, validate portion and impact assumptions, and evaluate extraction against labeled donor notes. Obtain explicit partner consent before notifications or public listings.
-
-## Publishing and disclosure
-
-Sites deployments default to **owner-private**. The owner must explicitly change sharing before judges can access a deployed URL. A short recorded demonstration also meets the supplied brief's demonstration requirement. `.openai/hosting.json` retains the registered Site identity; deployment secrets are not stored there.
-
-Codex assisted with design, implementation, tests, and documentation. Review the project and accurately disclose the tools and AI configuration used in your submission. Do not claim live IBM inference when presenting the offline parser.
+Codex assisted with design, implementation, testing, and documentation. Review the project and disclose which integrations your team actually configured and demonstrated.

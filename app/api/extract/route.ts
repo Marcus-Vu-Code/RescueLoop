@@ -1,5 +1,6 @@
 import { extractWithWatsonx, type WatsonxConfig } from "../../../lib/watsonx";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { env } from "cloudflare:workers";
+import { accountForRequest } from "../../../lib/live-service";
 
 function configuration(): WatsonxConfig | null {
   const apiKey = process.env.WATSONX_API_KEY,
@@ -40,10 +41,7 @@ export async function POST(request: Request) {
       },
       { status: 503, headers: noStore },
     );
-  const isLocal =
-    process.env.NODE_ENV !== "production" &&
-    ["localhost", "127.0.0.1"].includes(new URL(request.url).hostname);
-  if (!isLocal && !(await getChatGPTUser()))
+  if (!env.DB || !(await accountForRequest(request, env.DB)))
     return Response.json(
       { error: "Sign in to this workspace to use IBM extraction." },
       { status: 401, headers: noStore },

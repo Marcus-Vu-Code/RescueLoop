@@ -1,4 +1,4 @@
-import RescueApp from "./rescue-app";
+import LiveApp from "./live-app";
 export default function Home() {
-  return <RescueApp />;
+  return <LiveApp />;
 }
