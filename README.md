@@ -61,7 +61,7 @@ References: [IBM watsonx.ai API](https://cloud.ibm.com/docs/apis/watsonx-ai), [I
 
 ## Data, security, and measurement
 
-Passwords use salted PBKDF2-HMAC-SHA256 with 600,000 iterations. Random opaque session tokens are hashed in D1 and issued in HttpOnly, SameSite=Lax cookies, with Secure and `__Host-` in production. Mutations validate origin, ownership, roles, schema, and lifecycle. Sign-in and recovery are rate limited. Recovery rotates the code and invalidates previous sessions. Private source notes are excluded from partner views, and pickup messages are limited to the two participating organizations.
+Passwords use salted scrypt with N=32768, r=8, p=3, an [OWASP-recommended parameter set](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) compatible with the deployed runtime. Legacy local PBKDF2 records remain readable locally. Random opaque session tokens are hashed in D1 and issued in HttpOnly, SameSite=Lax cookies, with Secure and `__Host-` in production. Mutations validate origin, ownership, roles, schema, and lifecycle. Sign-in and recovery are rate limited. Recovery rotates the code and invalidates previous sessions. Private source notes are excluded from partner views, and pickup messages are limited to the two participating organizations.
 
 Approvals recheck current eligibility and reserve one whole batch with a conditional SQL update and D1 transaction. Concurrent donors cannot overbook the same receiver's daily capacity. Cancellation releases capacity. Collection retains that day's capacity and generates one receipt. Existing reservations prevent reducing capacity below commitments or changing the receiving time zone while active pickups would be affected.
 

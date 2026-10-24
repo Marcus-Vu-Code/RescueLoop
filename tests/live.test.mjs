@@ -138,7 +138,7 @@ test("passwords use unique salts and a slow KDF; the wrong password never matche
   const a = passwordHash(password),
     b = passwordHash(password);
   assert.notEqual(a, b);
-  assert.ok(a.startsWith("pbkdf2-sha256$600000$"));
+  assert.ok(a.startsWith("scrypt$32768$8$3$"));
   assert.equal(passwordMatches(password, a), true);
   assert.equal(passwordMatches("wrong passphrase", a), false);
   assert.equal(passwordMatches(password, "malformed"), false);

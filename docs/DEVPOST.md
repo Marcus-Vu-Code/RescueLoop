@@ -20,7 +20,7 @@ An optional IBM watsonx.ai chat adapter extracts explicitly stated inventory fac
 
 ## How it is built
 
-TypeScript, React, Vinext/Vite, Cloudflare Workers, shared D1/SQLite storage, Zod validation, Lucide icons, Node's test runner, Miniflare integration tests, and an IBM watsonx.ai REST adapter. Independent credentials use salted PBKDF2 and hashed opaque sessions. D1 transactions and conditional updates protect receiving capacity and collection lifecycle. An isolated `/demo` retains synthetic browser-local data for demonstrations.
+TypeScript, React, Vinext/Vite, Cloudflare Workers, shared D1/SQLite storage, Zod validation, Lucide icons, Node's test runner, Miniflare integration tests, and an IBM watsonx.ai REST adapter. Independent credentials use salted scrypt and hashed opaque sessions. D1 transactions and conditional updates protect receiving capacity and collection lifecycle. An isolated `/demo` retains synthetic browser-local data for demonstrations.
 
 ## Responsible AI and privacy
 

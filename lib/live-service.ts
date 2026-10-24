@@ -1153,6 +1153,9 @@ export async function handleLiveRequest(
       );
     console.error(
       "RescueLoop request failed; database or runtime unavailable.",
+      error instanceof Error
+        ? `${error.name}: ${error.message.slice(0, 240)}`
+        : "Unknown runtime error",
     );
     return json(
       {
