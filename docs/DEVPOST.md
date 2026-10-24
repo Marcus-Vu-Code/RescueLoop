@@ -1,5 +1,11 @@
 # RescueLoop
 
+Live application: https://rescueloop-live.rescueloop-campus.workers.dev/
+
+Sample walkthrough: https://rescueloop-live.rescueloop-campus.workers.dev/demo
+
+Source repository: https://github.com/Marcus-Vu-Code/RescueLoop
+
 ## Short description
 
 Good food. Greater impact. Independent campus dining and community partner accounts turn verified surplus into explainable pickup matches and collection receipts.
@@ -16,7 +22,7 @@ Receivers request eligible batches and donors approve them. Approval atomically 
 
 ## AI contribution
 
-An optional IBM watsonx.ai chat adapter extracts explicitly stated inventory facts using IBM Cloud IAM and a bounded, schema-validated request. Missing details stay unknown, and output cannot certify food or approve a pickup. Without provider credentials, the application clearly labels its rule-based parser. State exactly which extraction path was demonstrated; do not claim live IBM inference unless configured and verified.
+The live application uses IBM watsonx.ai with `ibm/granite-4-h-small` to extract explicitly stated inventory facts using IBM Cloud IAM and a bounded, schema-validated request. Hosted synthetic extraction was verified on October 24, 2026. Missing details stay unknown, and output cannot certify food or approve a pickup. The separate `/demo` route uses a clearly labeled offline parser and browser-local sample data.
 
 ## How it is built
 
@@ -30,7 +36,7 @@ People verify source facts and approve pickups. Unknown allergens block matching
 
 Only receiver-confirmed collections count. Weights are donor reported; meal equivalents use the explicitly labeled illustrative 0.5 kg assumption. Synthetic records do not establish real-world impact, and no emissions savings are claimed.
 
-The app includes email verification, expiring password-reset links, opt-in notification emails, and background retries through Resend. Production sending needs a verified domain; owner-test mode is limited to the owner's mailbox. State the actual provider activation status when submitting. Organization affiliation remains self-reported. Whole-batch allocation, declared constraints, and manually entered inventory need a campus pilot with validated handling procedures and measurement assumptions. Live routing and verified institutional onboarding are future additions.
+The app includes email verification, expiring password-reset links, opt-in notification emails, and background retries through Resend. The current deployment uses owner-only email test mode. Delivery to other users needs a verified sending domain. Organization affiliation remains self-reported. Whole-batch allocation, declared constraints, and manually entered inventory need a campus pilot with validated handling procedures and measurement assumptions. Live routing and verified institutional onboarding are future additions.
 
 ## AI development disclosure
 
@@ -38,9 +44,9 @@ Codex assisted with design, implementation, testing, and documentation. The team
 
 ## Before submitting
 
-- Add the actual team name, members, and repository URL.
-- Add a public URL verified without ChatGPT sign-in or record the required demonstration video.
-- The original managed Sites URL remains owner-private under workspace policy. Use the direct Cloudflare public URL for judges once published.
-- Verify signup, partnership acceptance, pickup approval, collection, and notifications on the live deployment.
+- Confirm the actual team name and every team member.
+- Use the public application and repository links above. The live demonstration can serve as prototype evidence under the challenge's final reminder.
+- The original managed Sites URL remains owner-private under workspace policy. Use the direct Cloudflare public URL for judges.
+- The October 24 preflight passed all 35 tests, typecheck, production build, and the synthetic two-account live workflow. Temporary QA data was removed.
 - State whether the presentation used live IBM extraction or the offline parser.
 - Follow the organizers' current deadline and submission instructions.

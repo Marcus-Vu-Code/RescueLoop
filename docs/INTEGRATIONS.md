@@ -31,11 +31,11 @@ Run from the application directory after public deployment:
 
 ```powershell
 # Activate IBM independently.
-npm run integrations:configure -- --ibm
+node --experimental-strip-types scripts/configure-integrations.mjs --ibm
 # Production email with a verified sending domain.
-npm run integrations:configure -- --email
+node --experimental-strip-types scripts/configure-integrations.mjs --email
 # No-domain alternative, restricted to INTEGRATION_TEST_EMAIL.
-npm run integrations:configure -- --email --owner-test
+node --experimental-strip-types scripts/configure-integrations.mjs --email --owner-test
 ```
 
 Add `--check-only` to test without changing production secrets. Each email check sends one message to `INTEGRATION_TEST_EMAIL`; IBM checks send one synthetic inventory note. Email API acceptance is not proof of inbox placement: check the mailbox and provider delivery activity. The script refuses to activate IBM unless extraction produces a valid unverified draft. It uploads secrets through Wrangler stdin, preserves unrelated secrets, and checks the saved deployment identity.

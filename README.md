@@ -4,6 +4,14 @@
 
 Public application: **https://rescueloop-live.rescueloop-campus.workers.dev**
 
+[Instant sample walkthrough](https://rescueloop-live.rescueloop-campus.workers.dev/demo) · [Project repository](https://github.com/Marcus-Vu-Code/RescueLoop)
+
+## Verified deployment status
+
+As of October 24, 2026, the public application uses live IBM watsonx.ai extraction with `ibm/granite-4-h-small` in Dallas. A synthetic two-account check passed signup, sign-in, partnership acceptance, IBM extraction, a pickup request, donor approval, private messaging, notifications, receiver confirmation, collection receipts, and duplicate protection. Temporary QA records were removed afterward. All 35 automated tests, the TypeScript check, and the production build passed.
+
+Email is connected through Resend in **owner-only test mode**. Delivery to other users requires a verified sending domain. In-app notifications and recovery codes work independently. The `/demo` walkthrough uses isolated browser-local sample data and an offline parser; its impact numbers are illustrative. No measured real-world food recovery or emissions savings are claimed.
+
 ## What works
 
 - Independent email/password accounts, secure sessions, password changes, and single-use recovery codes.
@@ -27,7 +35,7 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 npm run dev
 ```
 
-Open the Local URL printed by the development server. Create an account for the shared workflow or open `/demo` for the synthetic demonstration. Save the recovery code shown at registration; no recovery email is sent. `npm run start` serves the built Worker locally using the same local D1 state.
+Open the Local URL printed by the development server. Create an account for the shared workflow or open `/demo` for the synthetic demonstration. Save the recovery code shown at registration. Email recovery requires a verified address and configured delivery. `npm run start` serves the built Worker locally using the same local D1 state.
 
 ```powershell
 npm test
@@ -49,15 +57,15 @@ Use separate donor and receiver accounts, ideally in separate browser profiles. 
 
 See [the demo script](docs/DEMO.md) and [the Devpost draft](docs/DEVPOST.md). `/demo` is isolated from the shared application, uses a fixed sample clock, and clearly labels its synthetic impact and illustrative distances.
 
-## Optional IBM watsonx.ai
+## IBM watsonx.ai extraction
 
-See [INTEGRATIONS.md](docs/INTEGRATIONS.md) for provider account setup, secure activation, email verification, password reset, and notification delivery. `npm run integrations:configure -- --ibm` verifies a synthetic IBM extraction before uploading secrets. `--email` activates a verified sending domain; `--email --owner-test` restricts delivery to the owner's Resend signup address when no domain is available.
+See [INTEGRATIONS.md](docs/INTEGRATIONS.md) for provider account setup, secure activation, email verification, password reset, and notification delivery. `node --experimental-strip-types scripts/configure-integrations.mjs --ibm` verifies a synthetic IBM extraction before uploading secrets. `--email` activates a verified sending domain; `--email --owner-test` restricts delivery to the owner's Resend signup address when no domain is available.
 
 Copy `.env.example` to ignored `.dev.vars` for local development. Configure `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, `WATSONX_MODEL_ID`, and `WATSONX_URL`. Choose a chat-capable model actually available in your project and region. In production, use Worker secrets with the generated direct-deployment config, or Sites runtime environment variables for the managed Site.
 
 The server exchanges the API key through IBM IAM and calls `/ml/v1/text/chat?version=2025-10-25` with JSON output and a bounded completion limit. Explicit regional allowlists, bounded inputs, timeout handling, and schema validation protect extraction. Live extraction requires a signed-in RescueLoop account and a same-origin request. It runs only when selected. Credentials remain server-side, missing details stay unknown, and model output cannot verify food or approve a pickup.
 
-Without credentials, the UI identifies the offline rule-based parser. Tests mock IBM responses; a live IBM request has not been verified without the owner's provider credentials. Do not claim live IBM inference when demonstrating the offline parser.
+The deployed IBM integration passed a live synthetic extraction during the October 24 submission check. Adapter tests also use mocked IBM responses to cover failures and validation. Without credentials, the UI identifies the offline rule-based parser. The isolated `/demo` route uses that parser and must be described as a sample walkthrough.
 
 References: [IBM watsonx.ai API](https://cloud.ibm.com/docs/apis/watsonx-ai), [IBM IAM API](https://cloud.ibm.com/docs/apis/iam-identity-token-api).
 
