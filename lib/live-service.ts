@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { issueEmailToken, MailError, type MailConfig } from "./mail.ts";
 import {
   organizationSchema,
   listingSchema,
@@ -22,13 +23,20 @@ import {
   DUMMY_PASSWORD_HASH,
 } from "./passwords.ts";
 
-type Account = User & {
+type Account = Omit<User, "emailEnabled"> & {
+  emailEnabled: number;
   passwordHash: string;
   recoveryHash: string;
   preferences: string;
 };
 type Row = Record<string, unknown>;
-type Runtime = { providerConfigured?: boolean; now?: () => Date };
+type Runtime = {
+  providerConfigured?: boolean;
+  mail?: MailConfig | null;
+  fetcher?: typeof fetch;
+  now?: () => Date;
+  defer?: (task: Promise<unknown>) => void;
+};
 export class AppError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -87,6 +95,8 @@ const publicUser = (a: Account): User => ({
   email: a.email,
   displayName: a.displayName,
   createdAt: a.createdAt,
+  emailVerifiedAt: a.emailVerifiedAt || null,
+  emailEnabled: !!a.emailEnabled,
 });
 const cookieName = (r: Request) =>
   new URL(r.url).protocol === "https:"
@@ -220,7 +230,7 @@ function notice(
       ...guardValues,
     );
 }
-async function throttle(
+export async function throttle(
   db: D1Database,
   r: Request,
   scope: string,
@@ -357,6 +367,15 @@ export async function handleLiveRequest(
         preferences: JSON.parse(account.preferences) as Preferences,
         serverTime: stamp,
         providerConfigured: !!runtime.providerConfigured,
+        emailConfigured:
+          !!runtime.mail &&
+          (!runtime.mail.testRecipient ||
+            runtime.mail.testRecipient === account.email),
+        emailMode: !runtime.mail
+          ? "disabled"
+          : runtime.mail.testRecipient
+            ? "owner-test"
+            : "production",
       });
     }
     if (request.method !== "POST")
@@ -365,6 +384,119 @@ export async function handleLiveRequest(
       fail(403, "Submit changes from this RescueLoop site.");
     const input = await readBody(request);
     const action = z.string().max(60).parse(input?.action);
+    if (action === "auth.email.request-reset") {
+      const email = credentials.shape.email.parse(input.email);
+      if (!runtime.mail)
+        fail(503, "Email delivery is not configured. Use your recovery code.");
+      await throttle(db, request, "email-reset-ip", "", 8, now, 3600);
+      await throttle(db, request, "email-reset", email, 3, now, 3600);
+      const sendReset = async () => {
+        const a = await db
+          .prepare(
+            "SELECT id,email FROM rl_accounts WHERE email=? AND emailVerifiedAt IS NOT NULL",
+          )
+          .bind(email)
+          .first<{ id: string; email: string }>();
+        if (
+          a &&
+          (!runtime.mail!.testRecipient ||
+            a.email === runtime.mail!.testRecipient)
+        ) {
+          try {
+            await issueEmailToken(
+              db,
+              a.id,
+              a.email,
+              "reset",
+              runtime.mail!,
+              now,
+              runtime.fetcher,
+            );
+          } catch {
+            console.error("RescueLoop password-reset email could not be sent.");
+          }
+        }
+      };
+      if (runtime.defer) runtime.defer(sendReset());
+      else await sendReset();
+      return json({
+        ok: true,
+        message:
+          "If this address belongs to an email-verified account, a reset link will arrive shortly. You can also use your recovery code.",
+      });
+    }
+    if (action === "auth.email.verify" || action === "auth.email.reset") {
+      const raw = z
+          .string()
+          .regex(/^[A-Za-z0-9_-]{43}$/)
+          .parse(input.token),
+        hash = digest(raw),
+        purpose = action === "auth.email.verify" ? "verify" : "reset";
+      await throttle(db, request, "email-token", "", 15, now);
+      const valid = await db
+        .prepare(
+          "SELECT userId FROM rl_email_tokens WHERE hash=? AND purpose=? AND expiresAt>?",
+        )
+        .bind(hash, purpose, stamp)
+        .first<{ userId: string }>();
+      if (!valid)
+        fail(400, "This link is expired or already used. Request a new email.");
+      if (purpose === "verify") {
+        const results = await db.batch([
+          db
+            .prepare(
+              "UPDATE rl_accounts SET emailVerifiedAt=COALESCE(emailVerifiedAt,?),updatedAt=? WHERE id=? AND EXISTS(SELECT 1 FROM rl_email_tokens WHERE hash=? AND purpose='verify' AND expiresAt>?)",
+            )
+            .bind(stamp, stamp, valid!.userId, hash, stamp),
+          db.prepare("DELETE FROM rl_email_tokens WHERE hash=?").bind(hash),
+        ]);
+        if (!results[0].meta.changes)
+          fail(400, "This link is expired or already used.");
+        return json({
+          ok: true,
+          message:
+            "Your email is verified. You can now enable email notifications.",
+        });
+      }
+      const password = credentials.shape.password.parse(input.password),
+        newHash = passwordHash(password),
+        recoveryCode = token();
+      const result = await db.batch([
+        db
+          .prepare(
+            "UPDATE rl_accounts SET passwordHash=?,recoveryHash=?,updatedAt=? WHERE id=? AND EXISTS(SELECT 1 FROM rl_email_tokens WHERE hash=? AND purpose='reset' AND expiresAt>?)",
+          )
+          .bind(
+            newHash,
+            digest(recoveryCode),
+            stamp,
+            valid!.userId,
+            hash,
+            stamp,
+          ),
+        db
+          .prepare(
+            "DELETE FROM rl_sessions WHERE userId=? AND EXISTS(SELECT 1 FROM rl_accounts WHERE id=? AND passwordHash=?)",
+          )
+          .bind(valid!.userId, valid!.userId, newHash),
+        db
+          .prepare(
+            "DELETE FROM rl_email_tokens WHERE userId=? AND EXISTS(SELECT 1 FROM rl_accounts WHERE id=? AND passwordHash=?)",
+          )
+          .bind(valid!.userId, valid!.userId, newHash),
+      ]);
+      if (!result[0].meta.changes)
+        fail(400, "This link is expired or already used.");
+      return json(
+        {
+          ok: true,
+          recoveryCode,
+          message: "Password reset. Save your new recovery code, then sign in.",
+        },
+        200,
+        sessionCookie(request, "", 0),
+      );
+    }
     if (action === "auth.signup") {
       await throttle(db, request, "signup", "", 5, now, 3600);
       const data = signup.parse(input);
@@ -473,6 +605,11 @@ export async function handleLiveRequest(
           .bind(account.id, account.id, digest(recoveryCode)),
         db
           .prepare(
+            "DELETE FROM rl_email_tokens WHERE userId=? AND purpose='reset' AND EXISTS(SELECT 1 FROM rl_accounts WHERE id=? AND recoveryHash=?)",
+          )
+          .bind(account.id, account.id, digest(recoveryCode)),
+        db
+          .prepare(
             "INSERT INTO rl_sessions(hash,userId,expiresAt,createdAt) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM rl_accounts WHERE id=? AND recoveryHash=?)",
           )
           .bind(
@@ -503,6 +640,48 @@ export async function handleLiveRequest(
     }
     const me = await myOrg(db, account!.id);
     await throttle(db, request, "write", account!.id, 180, now, 60);
+    if (action === "account.email.verify") {
+      if (!runtime.mail) fail(503, "Email delivery is not configured yet.");
+      if (
+        runtime.mail!.testRecipient &&
+        runtime.mail!.testRecipient !== account!.email
+      )
+        fail(
+          503,
+          "Email delivery is limited to the app owner during provider setup.",
+        );
+      await throttle(db, request, "email-verify", account!.id, 4, now, 3600);
+      if (!account!.emailVerifiedAt)
+        await issueEmailToken(
+          db,
+          account!.id,
+          account!.email,
+          "verify",
+          runtime.mail!,
+          now,
+          runtime.fetcher,
+        );
+      return json({ ok: true });
+    }
+    if (action === "account.email.preferences") {
+      const enabled = z.boolean().parse(input.enabled);
+      if (enabled && !runtime.mail)
+        fail(503, "Email delivery is not configured yet.");
+      if (enabled && !account!.emailVerifiedAt)
+        fail(400, "Verify your email before enabling email notifications.");
+      await db
+        .prepare("UPDATE rl_accounts SET emailEnabled=?,updatedAt=? WHERE id=?")
+        .bind(+enabled, stamp, account!.id)
+        .run();
+      if (!enabled)
+        await db
+          .prepare(
+            "UPDATE rl_email_outbox SET status='cancelled',lease=NULL WHERE userId=? AND status IN ('pending','sending')",
+          )
+          .bind(account!.id)
+          .run();
+      return json({ ok: true });
+    }
     if (action === "account.password") {
       const data = z
         .object({
@@ -524,6 +703,11 @@ export async function handleLiveRequest(
         db
           .prepare(
             "DELETE FROM rl_sessions WHERE userId=? AND EXISTS(SELECT 1 FROM rl_accounts WHERE id=? AND passwordHash=?)",
+          )
+          .bind(account!.id, account!.id, hash),
+        db
+          .prepare(
+            "DELETE FROM rl_email_tokens WHERE userId=? AND purpose='reset' AND EXISTS(SELECT 1 FROM rl_accounts WHERE id=? AND passwordHash=?)",
           )
           .bind(account!.id, account!.id, hash),
         db
@@ -1137,6 +1321,7 @@ export async function handleLiveRequest(
     }
     fail(400, "Unknown application action.");
   } catch (error) {
+    if (error instanceof MailError) return json({ error: error.message }, 503);
     if (error instanceof AppError)
       return json({ error: error.message }, error.status);
     if (error instanceof z.ZodError)

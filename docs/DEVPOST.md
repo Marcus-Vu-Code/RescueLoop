@@ -30,7 +30,7 @@ People verify source facts and approve pickups. Unknown allergens block matching
 
 Only receiver-confirmed collections count. Weights are donor reported; meal equivalents use the explicitly labeled illustrative 0.5 kg assumption. Synthetic records do not establish real-world impact, and no emissions savings are claimed.
 
-Notifications currently arrive in-app. Email ownership and organization affiliation are unverified, and password recovery uses a private code. Whole-batch allocation, declared constraints, and manually entered inventory still need a campus pilot with validated handling procedures and measurement assumptions. Live routing, email delivery, and verified institutional onboarding are future additions.
+The app includes email verification, expiring password-reset links, opt-in notification emails, and background retries through Resend. Production sending needs a verified domain; owner-test mode is limited to the owner's mailbox. State the actual provider activation status when submitting. Organization affiliation remains self-reported. Whole-batch allocation, declared constraints, and manually entered inventory need a campus pilot with validated handling procedures and measurement assumptions. Live routing and verified institutional onboarding are future additions.
 
 ## AI development disclosure
 

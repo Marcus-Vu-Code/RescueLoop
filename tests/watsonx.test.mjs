@@ -66,6 +66,8 @@ test("IBM adapter authenticates with IAM, sends bounded deterministic chat, and 
   const body = JSON.parse(requests[1].init.body);
   assert.equal(body.model_id, "test-model");
   assert.equal(body.temperature, 0);
+  assert.equal(body.max_completion_tokens, 900);
+  assert.deepEqual(body.response_format, { type: "json_object" });
   assert.equal(body.messages[1].content, "original note");
   assert.ok(!JSON.stringify(draft).includes("test-key"));
 });

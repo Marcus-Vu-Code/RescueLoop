@@ -15,6 +15,8 @@ export const accounts = sqliteTable(
     displayName: text("displayName").notNull(),
     passwordHash: text("passwordHash").notNull(),
     recoveryHash: text("recoveryHash").notNull(),
+    emailVerifiedAt: text("emailVerifiedAt"),
+    emailEnabled: integer("emailEnabled").notNull().default(0),
     preferences: text("preferences")
       .notNull()
       .default('{"partnership":true,"pickup":true,"message":true}'),
@@ -195,4 +197,41 @@ export const rateLimits = sqliteTable(
     expiresAt: text("expiresAt").notNull(),
   },
   (t) => [index("rl_rate_expiry").on(t.expiresAt)],
+);
+export const emailTokens = sqliteTable(
+  "rl_email_tokens",
+  {
+    hash: text("hash").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => accounts.id),
+    purpose: text("purpose").notNull(),
+    expiresAt: text("expiresAt").notNull(),
+    createdAt: text("createdAt").notNull(),
+  },
+  (t) => [uniqueIndex("rl_email_token_purpose").on(t.userId, t.purpose)],
+);
+export const emailOutbox = sqliteTable(
+  "rl_email_outbox",
+  {
+    id: text("id").primaryKey(),
+    notificationId: text("notificationId")
+      .notNull()
+      .references(() => notifications.id),
+    userId: text("userId")
+      .notNull()
+      .references(() => accounts.id),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAt: text("nextAt").notNull(),
+    expiresAt: text("expiresAt").notNull(),
+    lease: text("lease"),
+    providerId: text("providerId"),
+    lastError: text("lastError"),
+    sentAt: text("sentAt"),
+  },
+  (t) => [
+    uniqueIndex("rl_email_notification").on(t.notificationId),
+    index("rl_email_ready").on(t.status, t.nextAt),
+  ],
 );

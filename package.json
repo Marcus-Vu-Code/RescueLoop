@@ -15,7 +15,8 @@
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "hosting:login": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js login --browser=false",
-    "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs"
+    "deploy:cloudflare": "node scripts/deploy-cloudflare.mjs",
+    "integrations:configure": "node --experimental-strip-types scripts/configure-integrations.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

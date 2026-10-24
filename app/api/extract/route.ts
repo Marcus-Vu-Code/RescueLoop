@@ -1,18 +1,15 @@
-import { extractWithWatsonx, type WatsonxConfig } from "../../../lib/watsonx";
+import { extractWithWatsonx } from "../../../lib/watsonx";
 import { env } from "cloudflare:workers";
-import { accountForRequest } from "../../../lib/live-service";
+import {
+  accountForRequest,
+  throttle,
+  AppError,
+} from "../../../lib/live-service";
+import { integrationConfiguration } from "../../../lib/provider-config";
 
-function configuration(): WatsonxConfig | null {
-  const apiKey = process.env.WATSONX_API_KEY,
-    projectId = process.env.WATSONX_PROJECT_ID,
-    modelId = process.env.WATSONX_MODEL_ID;
-  if (!apiKey || !projectId || !modelId) return null;
-  return {
-    apiKey,
-    projectId,
-    modelId,
-    url: process.env.WATSONX_URL || "https://us-south.ml.cloud.ibm.com",
-  };
+function configuration() {
+  return integrationConfiguration(env as unknown as Record<string, unknown>)
+    .watsonx;
 }
 const noStore = { "Cache-Control": "no-store" };
 export async function GET() {
@@ -41,12 +38,21 @@ export async function POST(request: Request) {
       },
       { status: 503, headers: noStore },
     );
-  if (!env.DB || !(await accountForRequest(request, env.DB)))
+  const account = env.DB ? await accountForRequest(request, env.DB) : null;
+  if (!env.DB || !account)
     return Response.json(
       { error: "Sign in to this workspace to use IBM extraction." },
       { status: 401, headers: noStore },
     );
   try {
+    await throttle(
+      env.DB,
+      request,
+      "ibm-extraction",
+      account.id,
+      10,
+      new Date(),
+    );
     let length = 0;
     const chunks: Uint8Array[] = [];
     const reader = request.body?.getReader();
@@ -94,6 +100,11 @@ export async function POST(request: Request) {
       { headers: noStore },
     );
   } catch (error) {
+    if (error instanceof AppError)
+      return Response.json(
+        { error: error.message },
+        { status: error.status, headers: noStore },
+      );
     const message = error instanceof Error ? error.message : "";
     const safe =
       message.startsWith("IBM ") ||

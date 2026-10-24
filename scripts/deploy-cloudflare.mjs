@@ -78,6 +78,7 @@ const config = {
   main: path.join(root, "dist/server/index.js"),
   assets: { ...output.assets, directory: path.join(root, "dist/client") },
   workers_dev: true,
+  triggers: { crons: ["*/5 * * * *"] },
   d1_databases: [],
   services: [],
 };

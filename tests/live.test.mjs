@@ -1,10 +1,16 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { handleLiveRequest } from "../lib/live-service.ts";
 import { passwordHash, passwordMatches } from "../lib/passwords.ts";
 import { receivingWindow, matchEligibility } from "../lib/live-domain.ts";
+import {
+  mailConfiguration,
+  sendMail,
+  drainEmailOutbox,
+  MailError,
+} from "../lib/mail.ts";
 
 let mf,
   db,
@@ -20,15 +26,21 @@ before(async () => {
     script: 'export default {fetch(){return new Response("test")}}',
   });
   db = await mf.getD1Database("DB");
-  const sql = await readFile(
-    new URL("../drizzle/0000_wealthy_butterfly.sql", import.meta.url),
-    "utf8",
-  );
-  for (const statement of sql
-    .split("--> statement-breakpoint")
-    .map((s) => s.trim())
-    .filter(Boolean))
-    await db.prepare(statement).run();
+  for (const migration of (
+    await readdir(new URL("../drizzle/", import.meta.url))
+  )
+    .filter((n) => n.endsWith(".sql"))
+    .sort()) {
+    const sql = await readFile(
+      new URL("../drizzle/" + migration, import.meta.url),
+      "utf8",
+    );
+    for (const statement of sql
+      .split("--> statement-breakpoint")
+      .map((s) => s.trim())
+      .filter(Boolean))
+      await db.prepare(statement).run();
+  }
 });
 after(async () => {
   await mf?.dispose();
@@ -58,7 +70,10 @@ function client() {
           ...(input ? { body: JSON.stringify(input) } : {}),
         },
       );
-      const response = await handleLiveRequest(request, db, { now: () => now });
+      const response = await handleLiveRequest(request, db, {
+        now: () => now,
+        ...options.runtime,
+      });
       const set = response.headers.get("set-cookie");
       if (set) cookie = set.split(";")[0];
       return {
@@ -512,4 +527,426 @@ test("receiving windows honor time zones and apply capacity, storage, and diet g
     ).ok,
     false,
   );
+});
+
+const mail = {
+  apiKey: "synthetic-resend-key",
+  from: "RescueLoop <updates@example.org>",
+  origin: "https://rescueloop.test",
+};
+function mailbox() {
+  const sent = [];
+  return {
+    sent,
+    runtime: {
+      mail,
+      fetcher: async (url, init) => {
+        assert.equal(url, "https://api.resend.com/emails");
+        sent.push({
+          body: JSON.parse(init.body),
+          key: init.headers["Idempotency-Key"],
+        });
+        return Response.json({ id: crypto.randomUUID() });
+      },
+    },
+  };
+}
+function emailToken(message, purpose) {
+  return message.body.text.match(
+    new RegExp(`#${purpose}=([A-Za-z0-9_-]{43})`),
+  )[1];
+}
+async function verifyEmail(a, m) {
+  const r = await a.c.call(
+    { action: "account.email.verify" },
+    { runtime: m.runtime },
+  );
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const raw = emailToken(m.sent.at(-1), "verify");
+  assert.equal(
+    (
+      await client().call(
+        { action: "auth.email.verify", token: raw },
+        { runtime: m.runtime },
+      )
+    ).status,
+    200,
+  );
+  return raw;
+}
+
+test("email adapter fixes its endpoint, uses provider idempotency, and rejects invalid sender configuration", async () => {
+  assert.equal(
+    mailConfiguration({
+      RESEND_API_KEY: "key",
+      MAIL_FROM: "x@example.org\r\nBcc: victim@example.org",
+      APP_ORIGIN: mail.origin,
+    }),
+    null,
+  );
+  assert.equal(
+    mailConfiguration({
+      RESEND_API_KEY: "key",
+      MAIL_FROM: mail.from,
+      APP_ORIGIN: "https://evil.example/path",
+    }),
+    null,
+  );
+  const m = mailbox();
+  await sendMail(
+    mail,
+    "fixture@rescueloop.test",
+    "Test",
+    "Synthetic",
+    "test-id",
+    m.runtime.fetcher,
+  );
+  assert.equal(m.sent[0].key, "rescueloop/test-id");
+  assert.ok(!JSON.stringify(m.sent).includes(mail.apiKey));
+  for (const status of [403, 429, 503])
+    await assert.rejects(
+      () =>
+        sendMail(
+          mail,
+          "fixture@rescueloop.test",
+          "Test",
+          "Synthetic",
+          "test-id",
+          async () => new Response("", { status }),
+        ),
+      (e) => e instanceof MailError && e.retryable === (status !== 403),
+    );
+});
+test("owner-only email mode prevents all sends to other addresses", async () => {
+  const values = {
+    RESEND_API_KEY: "synthetic",
+    MAIL_FROM: "RescueLoop <onboarding@resend.dev>",
+    APP_ORIGIN: mail.origin,
+  };
+  assert.equal(mailConfiguration(values), null);
+  const restricted = mailConfiguration({
+    ...values,
+    MAIL_TEST_RECIPIENT: "owner@rescueloop.test",
+  });
+  assert.ok(restricted);
+  let called = false;
+  await assert.rejects(
+    () =>
+      sendMail(
+        restricted,
+        "other@rescueloop.test",
+        "Test",
+        "Test",
+        "owner-test",
+        async () => {
+          called = true;
+          return Response.json({ id: "x" });
+        },
+      ),
+    (e) => e.code === "owner_test_only",
+  );
+  assert.equal(called, false);
+});
+
+test("email verification requires a single-use unexpired token; email updates require separate opt-in", async () => {
+  const a = await actor(),
+    m = mailbox();
+  assert.equal((await a.c.call()).data.user.emailVerifiedAt, null);
+  assert.equal(
+    (
+      await a.c.call(
+        { action: "account.email.preferences", enabled: true },
+        { runtime: m.runtime },
+      )
+    ).status,
+    400,
+  );
+  const r = await a.c.call(
+    { action: "account.email.verify" },
+    { runtime: m.runtime },
+  );
+  assert.equal(r.status, 200);
+  const raw = emailToken(m.sent[0], "verify");
+  await a.c.call({ action: "account.email.verify" }, { runtime: m.runtime });
+  assert.equal(m.sent.length, 1, "resend cooldown prevents duplicate email");
+  const saved = await db
+    .prepare("SELECT hash FROM rl_email_tokens WHERE userId=?")
+    .bind(a.w.user.id)
+    .first();
+  assert.notEqual(saved.hash, raw);
+  assert.equal(
+    (
+      await client().call(
+        { action: "auth.email.verify", token: raw },
+        {
+          runtime: {
+            ...m.runtime,
+            now: () => new Date(now.getTime() + 25 * 3600000),
+          },
+        },
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await client().call(
+        { action: "auth.email.verify", token: raw },
+        { runtime: m.runtime },
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await client().call(
+        { action: "auth.email.verify", token: raw },
+        { runtime: m.runtime },
+      )
+    ).status,
+    400,
+  );
+  assert.equal((await a.c.call()).data.user.emailEnabled, false);
+  assert.equal(
+    (
+      await a.c.call(
+        { action: "account.email.preferences", enabled: true },
+        { runtime: m.runtime },
+      )
+    ).status,
+    200,
+  );
+  assert.equal((await a.c.call()).data.user.emailEnabled, true);
+});
+
+test("email reset hides account existence, rotates recovery, consumes the link once and revokes sessions", async () => {
+  const a = await actor(),
+    m = mailbox(),
+    anonymous = client();
+  const unknown = await anonymous.call(
+    { action: "auth.email.request-reset", email: "unknown@rescueloop.test" },
+    { runtime: m.runtime },
+  );
+  const unverified = await a.c.call(
+    { action: "auth.email.request-reset", email: a.email },
+    { runtime: m.runtime },
+  );
+  assert.deepEqual(unknown.data, unverified.data);
+  assert.equal(m.sent.length, 0);
+  await verifyEmail(a, m);
+  const requested = await anonymous.call(
+    { action: "auth.email.request-reset", email: a.email },
+    { runtime: m.runtime },
+  );
+  assert.deepEqual(requested.data, unknown.data);
+  const raw = emailToken(m.sent.at(-1), "reset");
+  assert.equal(
+    (
+      await anonymous.call(
+        {
+          action: "auth.email.reset",
+          token: raw,
+          password: "Updated synthetic email reset passphrase!",
+        },
+        {
+          runtime: {
+            ...m.runtime,
+            now: () => new Date(now.getTime() + 31 * 60000),
+          },
+        },
+      )
+    ).status,
+    400,
+  );
+  const reset = await anonymous.call(
+    {
+      action: "auth.email.reset",
+      token: raw,
+      password: "Updated synthetic email reset passphrase!",
+    },
+    { runtime: m.runtime },
+  );
+  assert.equal(reset.status, 200, JSON.stringify(reset.data));
+  assert.ok(reset.data.recoveryCode);
+  assert.notEqual(reset.data.recoveryCode, a.recoveryCode);
+  assert.deepEqual((await a.c.call()).data, { user: null });
+  assert.deepEqual(
+    (await anonymous.call()).data,
+    { user: null },
+    "reset never automatically signs in",
+  );
+  assert.equal(
+    (
+      await anonymous.call(
+        { action: "auth.email.reset", token: raw, password },
+        { runtime: m.runtime },
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await anonymous.call({
+        action: "auth.login",
+        email: a.email,
+        password: "Updated synthetic email reset passphrase!",
+      })
+    ).status,
+    200,
+  );
+});
+test("password changes revoke previously issued email reset links", async () => {
+  const a = await actor(),
+    m = mailbox();
+  await verifyEmail(a, m);
+  await a.c.call(
+    { action: "auth.email.request-reset", email: a.email },
+    { runtime: m.runtime },
+  );
+  const raw = emailToken(m.sent.at(-1), "reset");
+  assert.equal(
+    (
+      await a.c.call({
+        action: "account.password",
+        currentPassword: password,
+        newPassword: "Synthetic changed password after issuing email!",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await client().call(
+        { action: "auth.email.reset", token: raw, password },
+        { runtime: m.runtime },
+      )
+    ).status,
+    400,
+  );
+});
+test("reset responses can return before provider delivery without exposing account existence", async () => {
+  const a = await actor(),
+    m = mailbox();
+  await verifyEmail(a, m);
+  const tasks = [];
+  const runtime = { ...m.runtime, defer: (task) => tasks.push(task) };
+  const response = await client().call(
+    { action: "auth.email.request-reset", email: a.email },
+    { runtime },
+  );
+  assert.equal(response.status, 200);
+  await Promise.all(tasks);
+  assert.equal(m.sent.length, 2);
+});
+
+async function notification(a, title = "Synthetic notification") {
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      "INSERT INTO rl_notifications(id,userId,eventKey,kind,title,body,entityId,createdAt) VALUES(?,?,?,'pickup',?,'Synthetic',?,?)",
+    )
+    .bind(id, a.w.user.id, id, title, crypto.randomUUID(), now.toISOString())
+    .run();
+  return id;
+}
+test("transactional notification outbox sends once under concurrent workers and honors opt-out", async () => {
+  const a = await actor(),
+    m = mailbox();
+  await notification(a);
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT COUNT(*) AS n FROM rl_email_outbox WHERE userId=?")
+        .bind(a.w.user.id)
+        .first()
+    ).n,
+    0,
+  );
+  await verifyEmail(a, m);
+  await a.c.call(
+    { action: "account.email.preferences", enabled: true },
+    { runtime: m.runtime },
+  );
+  m.sent.length = 0;
+  const id = await notification(a);
+  await Promise.all([
+    drainEmailOutbox(db, mail, now, m.runtime.fetcher),
+    drainEmailOutbox(db, mail, now, m.runtime.fetcher),
+  ]);
+  assert.equal(
+    m.sent.filter((s) => s.key === `rescueloop/notification/${id}`).length,
+    1,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT status FROM rl_email_outbox WHERE id=?")
+        .bind(id)
+        .first()
+    ).status,
+    "sent",
+  );
+  const cancelled = await notification(a);
+  await a.c.call(
+    { action: "account.email.preferences", enabled: false },
+    { runtime: m.runtime },
+  );
+  await drainEmailOutbox(db, mail, now, m.runtime.fetcher);
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT status FROM rl_email_outbox WHERE id=?")
+        .bind(cancelled)
+        .first()
+    ).status,
+    "cancelled",
+  );
+  assert.ok(
+    !m.sent.some((s) => s.key === `rescueloop/notification/${cancelled}`),
+  );
+});
+test("email retries keep the same idempotency key, respect backoff and discard permanent failures", async () => {
+  const a = await actor(),
+    m = mailbox();
+  await verifyEmail(a, m);
+  await a.c.call(
+    { action: "account.email.preferences", enabled: true },
+    { runtime: m.runtime },
+  );
+  m.sent.length = 0;
+  const id = await notification(a);
+  await drainEmailOutbox(
+    db,
+    mail,
+    now,
+    async () => new Response("", { status: 503 }),
+  );
+  let q = await db
+    .prepare("SELECT * FROM rl_email_outbox WHERE id=?")
+    .bind(id)
+    .first();
+  assert.equal(q.status, "pending");
+  assert.equal(q.attempts, 1);
+  await drainEmailOutbox(db, mail, now, m.runtime.fetcher);
+  assert.equal(m.sent.length, 0);
+  await drainEmailOutbox(
+    db,
+    mail,
+    new Date(now.getTime() + 61000),
+    m.runtime.fetcher,
+  );
+  assert.equal(m.sent[0].key, `rescueloop/notification/${id}`);
+  const bad = await notification(a);
+  await drainEmailOutbox(
+    db,
+    mail,
+    now,
+    async () => new Response("", { status: 403 }),
+  );
+  q = await db
+    .prepare("SELECT * FROM rl_email_outbox WHERE id=?")
+    .bind(bad)
+    .first();
+  assert.equal(q.status, "failed");
+  assert.equal(q.lastError, "provider_403");
 });

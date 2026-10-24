@@ -85,7 +85,7 @@ type View =
   | "Impact report"
   | "Notifications";
 type Popup = "food" | "profile" | "security" | "guide" | null;
-type AuthMode = "login" | "signup" | "recover";
+type AuthMode = "login" | "signup" | "recover" | "forgot";
 const dateTime = (value: string) =>
   new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -143,6 +143,7 @@ async function api(input: Record<string, unknown>) {
   const data = (await r.json()) as {
     error?: string;
     recoveryCode?: string;
+    message?: string;
     id?: string;
     receipt?: string;
   };
@@ -179,6 +180,26 @@ function Blank({
 }
 
 export default function LiveApp() {
+  const [emailAction, setEmailAction] = useState<{
+    purpose: "verify" | "reset";
+    token: string;
+  } | null>(null);
+  useEffect(() => {
+    const match = window.location.hash.match(
+      /^#(verify|reset)=([A-Za-z0-9_-]{43})$/,
+    );
+    if (match) {
+      setEmailAction({
+        purpose: match[1] as "verify" | "reset",
+        token: match[2],
+      });
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    }
+  }, []);
   const [workspace, setWorkspace] = useState<Workspace | null>(null),
     [loading, setLoading] = useState(true),
     [connectionError, setConnectionError] = useState(""),
@@ -337,10 +358,20 @@ export default function LiveApp() {
         <p>Opening your community workspace…</p>
       </div>
     );
+  const emailModal = emailAction && (
+    <EmailActionModal
+      action={emailAction}
+      onClose={() => {
+        setEmailAction(null);
+        refresh();
+      }}
+    />
+  );
   if (!workspace)
     return (
       <>
         <Landing onAuth={setAuthMode} />
+        {emailModal}
         {connectionError && (
           <div className="landing-error">
             <ErrorNote text={connectionError} />
@@ -355,14 +386,14 @@ export default function LiveApp() {
             title={
               authMode === "signup"
                 ? "A good connection starts here"
-                : authMode === "recover"
+                : authMode === "recover" || authMode === "forgot"
                   ? "Get back in the loop"
                   : "Welcome back to the loop"
             }
             eyebrow={
               authMode === "signup"
                 ? "CREATE YOUR RESCUELOOP ACCOUNT"
-                : authMode === "recover"
+                : authMode === "recover" || authMode === "forgot"
                   ? "ACCOUNT RECOVERY"
                   : "SIGN IN TO RESCUELOOP"
             }
@@ -1461,6 +1492,66 @@ export default function LiveApp() {
               </section>
               <section className="panel live-preferences">
                 <div>
+                  <h3>
+                    <Mail size={19} /> Email updates
+                  </h3>
+                  {w.emailMode === "owner-test" && (
+                    <p className="notice">
+                      Owner-only delivery test. Sending to other users requires
+                      a verified domain.
+                    </p>
+                  )}
+                  <p>
+                    {!w.emailConfigured
+                      ? "Email delivery is awaiting provider setup. In-app notifications remain available."
+                      : w.user.emailVerifiedAt
+                        ? "Your address is verified. Choose whether RescueLoop sends you updates."
+                        : "Verify your sign-in email before enabling email updates."}
+                  </p>
+                  {w.emailConfigured && !w.user.emailVerifiedAt && (
+                    <button
+                      className="btn outline"
+                      disabled={busy}
+                      onClick={() =>
+                        act(
+                          { action: "account.email.verify" },
+                          "Verification email requested. Check your inbox; requests are limited to one per minute.",
+                        )
+                      }
+                    >
+                      Send verification email
+                    </button>
+                  )}
+                  <label className="live-switch">
+                    <input
+                      type="checkbox"
+                      checked={w.user.emailEnabled}
+                      disabled={
+                        busy ||
+                        (!w.user.emailEnabled &&
+                          (!w.emailConfigured || !w.user.emailVerifiedAt))
+                      }
+                      onChange={(e) =>
+                        act(
+                          {
+                            action: "account.email.preferences",
+                            enabled: e.target.checked,
+                          },
+                          "Email preferences saved.",
+                        )
+                      }
+                    />
+                    <span>Send my selected notifications by email</span>
+                  </label>
+                  <small>
+                    Email updates contain a sign-in link, without private
+                    conversation text. Delivery is retried automatically when
+                    the provider is temporarily unavailable.
+                  </small>
+                </div>
+              </section>
+              <section className="panel live-preferences">
+                <div>
                   <h3>Keep the right things in your loop.</h3>
                   <p>
                     Choose the in-app notifications you receive. Updates refresh
@@ -1575,6 +1666,7 @@ export default function LiveApp() {
         >
           <AccountSettings
             email={w.user.email}
+            verified={!!w.user.emailVerifiedAt}
             onSubmit={async (input) => {
               const result = await mutate(input, "Account security updated.");
               if (result.recoveryCode) {
@@ -1708,6 +1800,7 @@ export default function LiveApp() {
           }}
         />
       )}
+      {emailModal}
       {popup === "guide" && (
         <Modal
           title="Good food. Clear decisions."
@@ -1934,13 +2027,27 @@ function AuthForm({
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [show, setShow] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    setMessage("");
+    setError("");
+  }, [mode]);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
     setBusy(true);
     const data = Object.fromEntries(new FormData(e.currentTarget));
     try {
-      const result = await api({ action: `auth.${mode}`, ...data });
+      const result = await api({
+        action: mode === "forgot" ? "auth.email.request-reset" : `auth.${mode}`,
+        ...data,
+      });
+      if (mode === "forgot") {
+        setMessage(
+          result.message || "Check your inbox for a password reset link.",
+        );
+        return;
+      }
       await onSuccess(result.recoveryCode);
     } catch (e) {
       setError((e as Error).message);
@@ -1954,8 +2061,10 @@ function AuthForm({
         {mode === "signup"
           ? "Your email and password sign you into RescueLoop. Create an organization to connect with your community."
           : mode === "recover"
-            ? "Use the recovery code saved when you created your account. This does not send a reset email."
-            : "Sign in with your RescueLoop email and password to continue."}
+            ? "Use the recovery code saved when you created your account."
+            : mode === "forgot"
+              ? "Request an email reset link for your verified address, or recover using your saved code."
+              : "Sign in with your RescueLoop email and password to continue."}
       </p>
       {mode === "signup" && (
         <>
@@ -2026,34 +2135,41 @@ function AuthForm({
           />
         </label>
       )}
-      <label className="field">
-        {mode === "recover" ? "New password" : "Password"}
-        <span className="live-password">
-          <input
-            name="password"
-            type={show ? "text" : "password"}
-            autoComplete={
-              mode === "login" ? "current-password" : "new-password"
-            }
-            minLength={15}
-            maxLength={128}
-            required
-          />
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label={show ? "Hide password" : "Show password"}
-            onClick={() => setShow(!show)}
-          >
-            {show ? <EyeOff size={17} /> : <Eye size={17} />}
-          </button>
-        </span>
-        <small>
-          {mode === "login"
-            ? "Enter your account passphrase."
-            : "Use a unique passphrase of at least 15 characters."}
-        </small>
-      </label>
+      {mode !== "forgot" && (
+        <label className="field">
+          {mode === "recover" ? "New password" : "Password"}
+          <span className="live-password">
+            <input
+              name="password"
+              type={show ? "text" : "password"}
+              autoComplete={
+                mode === "login" ? "current-password" : "new-password"
+              }
+              minLength={15}
+              maxLength={128}
+              required
+            />
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={show ? "Hide password" : "Show password"}
+              onClick={() => setShow(!show)}
+            >
+              {show ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </span>
+          <small>
+            {mode === "login"
+              ? "Enter your account passphrase."
+              : "Use a unique passphrase of at least 15 characters."}
+          </small>
+        </label>
+      )}
+      {message && (
+        <p className="notice" role="status">
+          {message}
+        </p>
+      )}
       <ErrorNote text={error} />
       <button className="btn primary full" disabled={busy}>
         {busy ? (
@@ -2065,7 +2181,9 @@ function AuthForm({
           ? "Create account"
           : mode === "recover"
             ? "Recover account"
-            : "Sign in"}
+            : mode === "forgot"
+              ? "Send reset link"
+              : "Sign in"}
       </button>
       <div className="live-auth-links">
         {mode !== "login" && (
@@ -2089,11 +2207,22 @@ function AuthForm({
             <button
               type="button"
               className="text-btn"
-              onClick={() => setMode("recover")}
+              onClick={() => setMode("forgot")}
             >
               Forgot password?
             </button>
           </>
+        )}
+        {(mode === "forgot" || mode === "recover") && (
+          <button
+            type="button"
+            className="text-btn"
+            onClick={() => setMode(mode === "forgot" ? "recover" : "forgot")}
+          >
+            {mode === "forgot"
+              ? "Use a recovery code"
+              : "Send an email reset link"}
+          </button>
         )}
       </div>
       {mode === "signup" && (
@@ -2104,6 +2233,96 @@ function AuthForm({
         </p>
       )}
     </form>
+  );
+}
+function EmailActionModal({
+  action,
+  onClose,
+}: {
+  action: { purpose: "verify" | "reset"; token: string };
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [done, setDone] = useState(false),
+    [code, setCode] = useState("");
+  if (code) return <RecoveryModal code={code} onClose={onClose} />;
+  return (
+    <Modal
+      title={
+        action.purpose === "verify"
+          ? "Verify your email"
+          : "Choose a new password"
+      }
+      eyebrow="YOUR RESCUELOOP ACCOUNT"
+      onClose={onClose}
+    >
+      {done ? (
+        <>
+          <p className="notice">
+            Your email is verified. Sign in and enable email updates in
+            Notifications.
+          </p>
+          <button className="btn primary" onClick={onClose}>
+            Continue to RescueLoop
+          </button>
+        </>
+      ) : (
+        <form
+          className="live-auth-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            setBusy(true);
+            setError("");
+            try {
+              const result = await api({
+                action: `auth.email.${action.purpose}`,
+                token: action.token,
+                ...(action.purpose === "reset"
+                  ? { password: data.get("password") }
+                  : {}),
+              });
+              if (result.recoveryCode) setCode(result.recoveryCode);
+              else setDone(true);
+            } catch (error) {
+              setError((error as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <p>
+            {action.purpose === "verify"
+              ? "Confirm that this is your email address. This does not sign you in or enable notifications automatically."
+              : "This link works once and expires after 30 minutes. Resetting signs out all previous sessions."}
+          </p>
+          {action.purpose === "reset" && (
+            <label className="field">
+              New password
+              <input
+                type="password"
+                name="password"
+                required
+                minLength={15}
+                maxLength={128}
+                autoComplete="new-password"
+              />
+              <small>Use a unique passphrase of at least 15 characters.</small>
+            </label>
+          )}
+          <ErrorNote text={error} />
+          <button className="btn primary" disabled={busy}>
+            {busy ? (
+              <LoaderCircle className="spin" size={17} />
+            ) : (
+              <ShieldCheck size={17} />
+            )}{" "}
+            {action.purpose === "verify" ? "Verify email" : "Reset password"}
+          </button>
+        </form>
+      )}
+    </Modal>
   );
 }
 function RecoveryModal({
@@ -2169,7 +2388,9 @@ function RecoveryModal({
         />
         <span>
           <strong>I saved my recovery code somewhere private.</strong>
-          <small>RescueLoop does not currently send recovery emails.</small>
+          <small>
+            This code works even when email recovery is unavailable.
+          </small>
         </span>
       </label>
       <button className="btn primary full" disabled={!saved} onClick={onClose}>
@@ -3401,9 +3622,11 @@ function PickupThread({
 
 function AccountSettings({
   email,
+  verified,
   onSubmit,
 }: {
   email: string;
+  verified: boolean;
   onSubmit: (input: Record<string, unknown>) => Promise<void>;
 }) {
   const [tab, setTab] = useState("password"),
@@ -3415,7 +3638,12 @@ function AccountSettings({
         <Mail size={19} />
         <div>
           <strong>{email}</strong>
-          <p>Private sign-in address · email ownership is not verified</p>
+          <p>
+            Private sign-in address ·{" "}
+            {verified
+              ? "email verified"
+              : "verify in Notifications to enable email updates and recovery"}
+          </p>
         </div>
       </div>
       <div className="tabs editor-tabs">

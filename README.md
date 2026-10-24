@@ -35,7 +35,7 @@ npm run typecheck
 npm run build
 ```
 
-The 27 tests cover multi-account authorization, sessions and recovery, concurrent approvals, capacity release, collection receipts, time-zone restrictions, parser validation, CSV safety, and mocked IBM requests. Live integration tests use a temporary Miniflare D1 database. Migrations in `drizzle/` are append-only; generate future schema changes with `npm run db:generate`.
+The tests cover multi-account authorization, sessions, email verification and password resets, notification delivery and retries, concurrent approvals, capacity release, collection receipts, time-zone restrictions, parser validation, CSV safety, and mocked IBM requests. Live integration tests use a temporary Miniflare D1 database. Migrations in `drizzle/` are append-only; generate future schema changes with `npm run db:generate`.
 
 ## Public hosting
 
@@ -51,9 +51,11 @@ See [the demo script](docs/DEMO.md) and [the Devpost draft](docs/DEVPOST.md). `/
 
 ## Optional IBM watsonx.ai
 
+See [INTEGRATIONS.md](docs/INTEGRATIONS.md) for provider account setup, secure activation, email verification, password reset, and notification delivery. `npm run integrations:configure -- --ibm` verifies a synthetic IBM extraction before uploading secrets. `--email` activates a verified sending domain; `--email --owner-test` restricts delivery to the owner's Resend signup address when no domain is available.
+
 Copy `.env.example` to ignored `.dev.vars` for local development. Configure `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, `WATSONX_MODEL_ID`, and `WATSONX_URL`. Choose a chat-capable model actually available in your project and region. In production, use Worker secrets with the generated direct-deployment config, or Sites runtime environment variables for the managed Site.
 
-The server exchanges the API key through IBM IAM and calls `/ml/v1/text/chat?version=2024-05-31`. Explicit regional allowlists, bounded inputs, timeout handling, and schema validation protect the extraction endpoint. Live extraction requires a signed-in RescueLoop account and a same-origin request. It runs only when the coordinator selects it. Credentials remain server-side, missing details stay unknown, and model output cannot verify food or approve a pickup.
+The server exchanges the API key through IBM IAM and calls `/ml/v1/text/chat?version=2025-10-25` with JSON output and a bounded completion limit. Explicit regional allowlists, bounded inputs, timeout handling, and schema validation protect extraction. Live extraction requires a signed-in RescueLoop account and a same-origin request. It runs only when selected. Credentials remain server-side, missing details stay unknown, and model output cannot verify food or approve a pickup.
 
 Without credentials, the UI identifies the offline rule-based parser. Tests mock IBM responses; a live IBM request has not been verified without the owner's provider credentials. Do not claim live IBM inference when demonstrating the offline parser.
 
@@ -87,6 +89,6 @@ React/TypeScript runs on Vinext/Vite and Cloudflare Workers. The Sites starter's
 
 ## Current limits
 
-Notifications are in-app; email, SMS, and push delivery are not configured. Email ownership and organization affiliation are unverified. Recovery uses the private code rather than email. Each account manages one organization. Matching checks declared constraints and uses whole batches; it does not certify food safety, provide routing or dispatch, or verify reported weights. No beneficiary personal information is required. A real campus pilot still needs partner consent, handling protocols, operational support, and measurement validation. Verify the deployed signup workflow against the selected Worker's CPU allowance before inviting users.
+Email verification, reset links, and opt-in notification delivery are implemented through Resend. Delivery requires configured provider credentials and a verified sending domain; no-domain owner-test mode cannot send to other users. In-app notifications and private recovery codes remain available independently. SMS and push are not implemented. Organization affiliation is self-reported. Each account manages one organization. Matching checks declared constraints and whole batches; it does not certify food safety, provide routing or dispatch, or verify reported weights. A campus pilot still needs partner consent, handling protocols, operational support, and measurement validation.
 
 Codex assisted with design, implementation, testing, and documentation. Review the project and disclose which integrations your team actually configured and demonstrated.

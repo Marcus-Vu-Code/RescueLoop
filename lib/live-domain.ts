@@ -96,6 +96,8 @@ export type User = {
   email: string;
   displayName: string;
   createdAt: string;
+  emailVerifiedAt: string | null;
+  emailEnabled: boolean;
 };
 export type Preferences = {
   partnership: boolean;
@@ -113,6 +115,8 @@ export type Workspace = {
   preferences: Preferences;
   serverTime: string;
   providerConfigured: boolean;
+  emailConfigured: boolean;
+  emailMode: "disabled" | "owner-test" | "production";
 };
 export const preferencesSchema = z.object({
   partnership: z.boolean(),

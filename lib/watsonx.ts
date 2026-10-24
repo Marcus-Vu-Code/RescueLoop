@@ -107,7 +107,7 @@ export async function extractWithWatsonx(
   if (!token.access_token)
     throw new Error("IBM did not return an access token.");
   const response = await fetcher(
-    `${endpoint.origin}/ml/v1/text/chat?version=2024-05-31`,
+    `${endpoint.origin}/ml/v1/text/chat?version=2025-10-25`,
     {
       method: "POST",
       headers: {
@@ -121,7 +121,8 @@ export async function extractWithWatsonx(
           { role: "system", content: EXTRACTION_PROMPT },
           { role: "user", content: note },
         ],
-        max_tokens: 900,
+        max_completion_tokens: 900,
+        response_format: { type: "json_object" },
         temperature: 0,
       }),
       signal: AbortSignal.timeout(30000),

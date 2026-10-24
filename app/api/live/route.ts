@@ -1,17 +1,19 @@
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { handleLiveRequest } from "../../../lib/live-service";
+import { integrationConfiguration } from "../../../lib/provider-config";
 const handler = (request: Request) => {
   if (!env.DB)
     return Response.json(
       { error: "The shared database is unavailable. Please try again later." },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
+  const providers = integrationConfiguration(
+    env as unknown as Record<string, unknown>,
+  );
   return handleLiveRequest(request, env.DB, {
-    providerConfigured: !!(
-      process.env.WATSONX_API_KEY &&
-      process.env.WATSONX_PROJECT_ID &&
-      process.env.WATSONX_MODEL_ID
-    ),
+    providerConfigured: !!providers.watsonx,
+    mail: providers.mail,
+    defer: waitUntil,
   });
 };
 export const GET = handler;

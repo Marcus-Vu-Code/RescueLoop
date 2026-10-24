@@ -47,6 +47,6 @@ The script does not choose a paid plan, accept billing terms, or register a doma
 
 Set `WATSONX_API_KEY`, `WATSONX_PROJECT_ID`, `WATSONX_MODEL_ID`, and `WATSONX_URL` as Worker secrets using Wrangler's secret input prompt and the generated configuration. Never pass secrets as shell arguments or commit them. The app otherwise uses the clearly labeled offline parser. A successful authenticated IBM request still needs to be verified with the owner's credentials.
 
-## What requires another provider
+## Activate email and IBM
 
-Notifications currently arrive **inside RescueLoop**. There is no email, SMS, or push delivery claim. Password recovery uses a private, single-use recovery code; no reset email is sent. Email ownership and organization affiliation are not verified. A transactional email provider would be needed to add verified email and email-based recovery later.
+See [INTEGRATIONS.md](INTEGRATIONS.md) for Resend and IBM account setup and secure activation. Email verification, single-use reset links, opt-in notification emails, retries, and a five-minute delivery schedule are implemented. Production delivery needs a Resend-verified domain. Without a domain, owner-test mode sends only to the owner's Resend signup email; other users keep in-app notifications and recovery codes. SMS and push are not implemented. IBM activation requires a working project, Runtime service, model ID, and API key; credentials are checked using a synthetic note before upload.
