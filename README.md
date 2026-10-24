@@ -8,7 +8,7 @@ Public application: **https://rescueloop-live.rescueloop-campus.workers.dev**
 
 ## Verified deployment status
 
-As of October 24, 2026, the public application uses live IBM watsonx.ai extraction with `ibm/granite-4-h-small` in Dallas. A synthetic two-account check passed signup, sign-in, partnership acceptance, IBM extraction, a pickup request, donor approval, private messaging, notifications, receiver confirmation, collection receipts, and duplicate protection. Temporary QA records were removed afterward. All 35 automated tests, the TypeScript check, and the production build passed.
+As of October 24, 2026, the public application uses live IBM watsonx.ai extraction with `ibm/granite-4-h-small` in Dallas. A synthetic two-account check passed signup, sign-in, partnership acceptance, IBM extraction, a pickup request, donor approval, private messaging, notifications, receiver confirmation, collection receipts, and duplicate protection. Temporary QA records were removed afterward. All 36 automated tests, the TypeScript check, and the production build passed.
 
 Email is connected through Resend in **owner-only test mode**. Delivery to other users requires a verified sending domain. In-app notifications and recovery codes work independently. The `/demo` walkthrough uses isolated browser-local sample data and an offline parser; its impact numbers are illustrative. No measured real-world food recovery or emissions savings are claimed.
 

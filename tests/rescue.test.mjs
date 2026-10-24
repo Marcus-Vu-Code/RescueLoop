@@ -150,6 +150,26 @@ test("CSV import validates every row atomically; imported foods always need revi
   ]);
   assert.throws(() => csvRows('a,"unfinished'), /unclosed/);
 });
+test("inventory import explains collection reports without inventing missing food details", () => {
+  const rows = [
+    ["RescueLoop sample workspace — collection report"],
+    ["Demo date", "2026-10-23"],
+    ["Food", "Weight (kg)", "Estimated meal equivalents (0.5 kg)", "Partner", "Listing date", "Collected at"],
+    ["Harvest lunch bowls", 24, 48, "Sample Pantry", "2026-10-19", "2026-10-19T15:00:00-07:00"],
+  ];
+  for (const report of [csvExport(rows), csvExport(rows.slice(2))]) {
+    assert.throws(() => parseInventoryCSV(report), (error) => {
+      assert.match(error.message, /Collection reports cannot be imported/);
+      assert.match(error.message, /Download template/);
+      assert.match(error.message, /From a note/);
+      return true;
+    });
+  }
+  assert.equal(
+    parseInventoryCSV(INVENTORY_CSV.replace("Vegetable rice", "Collection report lunch"))[0].name,
+    "Collection report lunch",
+  );
+});
 test("partner capacity CSV enforces supported storage, category, windows and numeric capacity", () => {
   const partners = parsePartnersCSV(PARTNERS_CSV);
   assert.equal(partners.length, 1);

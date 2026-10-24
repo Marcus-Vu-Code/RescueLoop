@@ -2484,6 +2484,13 @@ function LiveFoodForm({
       source: "",
     },
   );
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({ block: "nearest" });
+      errorRef.current?.focus({ preventScroll: true });
+    }
+  }, [error]);
   function change(key: string, value: unknown) {
     setDraft((d) => ({
       ...d,
@@ -2584,6 +2591,11 @@ function LiveFoodForm({
       setBusy(false);
     }
   }
+  const errorNote = error ? (
+    <div ref={errorRef} tabIndex={-1}>
+      <ErrorNote text={error} />
+    </div>
+  ) : null;
   return (
     <div className="editor live-form">
       <p className="editor-intro">
@@ -2868,6 +2880,7 @@ function LiveFoodForm({
           <p className="editor-intro">
             Use the template columns below. All imported food starts in review.
             Up to 30 listings are saved together in one batch.
+            Collection reports are for your records and cannot be imported here.
           </p>
           <label className="field">
             Pickup date for this import
@@ -2894,6 +2907,7 @@ function LiveFoodForm({
                     return;
                   }
                   setCsv(await file.text());
+                  setError("");
                 }
               }}
             />
@@ -2902,7 +2916,10 @@ function LiveFoodForm({
             Inventory CSV
             <textarea
               value={csv}
-              onChange={(e) => setCsv(e.target.value)}
+              onChange={(e) => {
+                setCsv(e.target.value);
+                setError("");
+              }}
               rows={5}
               placeholder={INVENTORY_CSV}
             />
@@ -2923,8 +2940,10 @@ function LiveFoodForm({
             </button>
             <span>Times are in your device’s time zone</span>
           </div>
+          {errorNote}
           <button
             className="btn primary full"
+            type="button"
             disabled={busy}
             onClick={importCSV}
           >
@@ -2933,11 +2952,11 @@ function LiveFoodForm({
             ) : (
               <PackageOpen size={16} />
             )}
-            Import for review
+            {busy ? "Importing…" : "Import for review"}
           </button>
         </>
       )}
-      <ErrorNote text={error} />
+      {tab !== "csv" && errorNote}
     </div>
   );
 }

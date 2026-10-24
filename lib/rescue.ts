@@ -604,6 +604,17 @@ export function parseInventoryCSV(text: string): Food[] {
   const [header, ...rows] = csvRows(text.replace(/^\uFEFF/, "")).map(
     (row, i) => (i === 0 ? row.map((cell) => cell.trim()) : row),
   );
+  if (
+    header &&
+    !header.includes("name") &&
+    [header, ...rows.slice(0, 2)].some((row) =>
+      row.some((cell) => /\bcollection report\b/i.test(cell)) ||
+      (row.includes("Food") && row.includes("Collected at")),
+    )
+  )
+    throw new Error(
+      "Collection reports cannot be imported as inventory. Choose Download template for an inventory CSV, or use From a note to structure a donor note.",
+    );
   if (!header || !rows.length)
     throw new Error("CSV must include a header and at least one listing.");
   if (rows.length > 100)
@@ -618,7 +629,10 @@ export function parseInventoryCSV(text: string): Food[] {
     "storage",
     "allergens",
   ])
-    if (!header.includes(key)) throw new Error(`Missing CSV column: ${key}`);
+    if (!header.includes(key))
+      throw new Error(
+        `Missing CSV column: ${key}. Use the inventory template below.`,
+      );
   return rows.map((row, i) => {
     const r = Object.fromEntries(
       header.map((h, j) => [h.trim(), row[j]?.trim() || ""]),
